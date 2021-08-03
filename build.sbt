@@ -223,7 +223,9 @@ lazy val kernel = crossProject(JSPlatform, JVMPlatform)
     name := "cats-effect-kernel",
     libraryDependencies ++= Seq(
       ("org.specs2" %%% "specs2-core" % Specs2Version % Test).cross(CrossVersion.for3Use2_13),
-      "org.typelevel" %%% "cats-core" % CatsVersion)
+      "org.typelevel" %%% "cats-core" % CatsVersion,
+//      "ch.qos.logback" % "logback-classic" % "1.2.3",
+      "com.typesafe.scala-logging" %% "scala-logging" % "3.9.4"),
   )
   .jsSettings(Compile / doc / sources := {
     if (isDotty.value)

@@ -18,14 +18,13 @@ package cats.effect
 
 import cats.effect.tracing._
 import cats.effect.unsafe._
-
 import cats.arrow.FunctionK
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.{switch, tailrec}
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 import scala.util.control.NonFatal
-
 import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -74,13 +73,14 @@ private final class IOFiber[A](
     private[this] val runtime: IORuntime
 ) extends IOFiberPlatform[A]
     with FiberIO[A]
+  with LazyLogging
     with Runnable {
   /* true when semantically blocking (ensures that we only unblock *once*) */
   suspended: AtomicBoolean =>
 
   import IO._
   import IOFiberConstants._
-
+  
   /*
    * Ideally these would be on the stack, but they can't because we sometimes need to
    * relocate our runloop to another fiber.
@@ -191,12 +191,14 @@ private final class IOFiber[A](
       _cur0: IO[Any],
       cancelationIterations: Int,
       autoCedeIterations: Int): Unit = {
+    logger.warn(s"Entering runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${_cur0.tag}")
     /*
      * `cur` will be set to `EndFiber` when the runloop needs to terminate,
      * either because the entire IO is done, or because this branch is done
      * and execution is continuing asynchronously in a different runloop invocation.
      */
     if (_cur0 eq IOEndFiber) {
+      logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${_cur0.tag}")
       return
     }
 
@@ -224,7 +226,7 @@ private final class IOFiber[A](
       resumeTag = AutoCedeR
       rescheduleFiber(currentCtx)(this)
     } else {
-      // System.out.println(s"looping on $cur0")
+       logger.warn(s"looping on ${cur0.tag}")
       /*
        * The cases have to use continuous constants to generate a `tableswitch`.
        * Do not name or reorder them.
@@ -232,10 +234,12 @@ private final class IOFiber[A](
       (cur0.tag: @switch) match {
         case 0 =>
           val cur = cur0.asInstanceOf[Pure[Any]]
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(succeeded(cur.value, 0), nextCancelation, nextAutoCede)
 
         case 1 =>
           val cur = cur0.asInstanceOf[Error]
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(failed(cur.t, 0), nextCancelation, nextAutoCede)
 
         case 2 =>
@@ -257,10 +261,12 @@ private final class IOFiber[A](
             if (error == null) succeeded(r, 0)
             else failed(error, 0)
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(next, nextCancelation, nextAutoCede)
 
         /* RealTime */
         case 3 =>
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(
             succeeded(runtime.scheduler.nowMillis().millis, 0),
             nextCancelation,
@@ -268,6 +274,7 @@ private final class IOFiber[A](
 
         /* Monotonic */
         case 4 =>
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(
             succeeded(runtime.scheduler.monotonicNanos().nanos, 0),
             nextCancelation,
@@ -275,6 +282,7 @@ private final class IOFiber[A](
 
         /* ReadEC */
         case 5 =>
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(succeeded(currentCtx, 0), nextCancelation, nextAutoCede)
 
         case 6 =>
@@ -302,10 +310,12 @@ private final class IOFiber[A](
           (ioe.tag: @switch) match {
             case 0 =>
               val pure = ioe.asInstanceOf[Pure[Any]]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(pure.value), nextCancelation - 1, nextAutoCede)
 
             case 1 =>
               val error = ioe.asInstanceOf[Error]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(failed(error.t, 0), nextCancelation - 1, nextAutoCede)
 
             case 2 =>
@@ -325,23 +335,28 @@ private final class IOFiber[A](
                 }
 
               val nextIO = if (error == null) succeeded(result, 0) else failed(error, 0)
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(nextIO, nextCancelation - 1, nextAutoCede)
 
             case 3 =>
               val realTime = runtime.scheduler.nowMillis().millis
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(realTime), nextCancelation - 1, nextAutoCede)
 
             case 4 =>
               val monotonic = runtime.scheduler.monotonicNanos().nanos
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(monotonic), nextCancelation - 1, nextAutoCede)
 
             case 5 =>
               val ec = currentCtx
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(ec), nextCancelation - 1, nextAutoCede)
 
             case _ =>
               objectState.push(f)
               conts.push(MapK)
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(ioe, nextCancelation, nextAutoCede)
           }
 
@@ -365,10 +380,12 @@ private final class IOFiber[A](
           (ioe.tag: @switch) match {
             case 0 =>
               val pure = ioe.asInstanceOf[Pure[Any]]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(pure.value), nextCancelation - 1, nextAutoCede)
 
             case 1 =>
               val error = ioe.asInstanceOf[Error]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(failed(error.t, 0), nextCancelation - 1, nextAutoCede)
 
             case 2 =>
@@ -386,23 +403,28 @@ private final class IOFiber[A](
                     onFatalFailure(t)
                 }
 
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(result, nextCancelation - 1, nextAutoCede)
 
             case 3 =>
               val realTime = runtime.scheduler.nowMillis().millis
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(realTime), nextCancelation - 1, nextAutoCede)
 
             case 4 =>
               val monotonic = runtime.scheduler.monotonicNanos().nanos
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(monotonic), nextCancelation - 1, nextAutoCede)
 
             case 5 =>
               val ec = currentCtx
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next(ec), nextCancelation - 1, nextAutoCede)
 
             case _ =>
               objectState.push(f)
               conts.push(FlatMapK)
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(ioe, nextCancelation, nextAutoCede)
           }
 
@@ -414,10 +436,12 @@ private final class IOFiber[A](
           (ioa.tag: @switch) match {
             case 0 =>
               val pure = ioa.asInstanceOf[Pure[Any]]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(succeeded(Right(pure.value), 0), nextCancelation - 1, nextAutoCede)
 
             case 1 =>
               val error = ioa.asInstanceOf[Error]
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(succeeded(Left(error.t), 0), nextCancelation - 1, nextAutoCede)
 
             case 2 =>
@@ -438,22 +462,27 @@ private final class IOFiber[A](
 
               val next =
                 if (error == null) succeeded(Right(result), 0) else succeeded(Left(error), 0)
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next, nextCancelation - 1, nextAutoCede)
 
             case 3 =>
               val realTime = runtime.scheduler.nowMillis().millis
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(succeeded(Right(realTime), 0), nextCancelation - 1, nextAutoCede)
 
             case 4 =>
               val monotonic = runtime.scheduler.monotonicNanos().nanos
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(succeeded(Right(monotonic), 0), nextCancelation - 1, nextAutoCede)
 
             case 5 =>
               val ec = currentCtx
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(succeeded(Right(ec), 0), nextCancelation - 1, nextAutoCede)
 
             case _ =>
               conts.push(AttemptK)
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(ioa, nextCancelation, nextAutoCede)
           }
 
@@ -465,6 +494,7 @@ private final class IOFiber[A](
           objectState.push(cur.f)
           conts.push(HandleErrorWithK)
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(cur.ioa, nextCancelation, nextAutoCede)
 
         /* Canceled */
@@ -474,6 +504,7 @@ private final class IOFiber[A](
             /* run finalizers immediately */
             asyncCancel(null)
           } else {
+            logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
             runLoop(succeeded((), 0), nextCancelation, nextAutoCede)
           }
 
@@ -488,6 +519,7 @@ private final class IOFiber[A](
            * finalizer when `ioa` completes uninterrupted.
            */
           conts.push(OnCancelK)
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(cur.ioa, nextCancelation, nextAutoCede)
 
         case 12 =>
@@ -506,6 +538,7 @@ private final class IOFiber[A](
            * to unmask once body completes.
            */
           conts.push(UncancelableK)
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(cur.body(poll), nextCancelation, nextAutoCede)
 
         case 13 =>
@@ -524,6 +557,7 @@ private final class IOFiber[A](
             conts.push(UnmaskK)
           }
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(cur.ioa, nextCancelation, nextAutoCede)
 
         case 14 =>
@@ -669,6 +703,7 @@ private final class IOFiber[A](
 
           val next = body[IO].apply(cb, get, FunctionK.id)
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(next, nextCancelation, nextAutoCede)
 
         case 15 =>
@@ -688,7 +723,10 @@ private final class IOFiber[A](
           finalizers.push(fin)
           conts.push(OnCancelK)
 
+
+          logger.warn("compare and set")
           if (state.compareAndSet(ContStateInitial, ContStateWaiting)) {
+            logger.warn("inside compare and set")
             /*
              * `state` was Initial, so `get` has arrived before the callback,
              * it needs to set the state to `Waiting` and suspend: `cb` will
@@ -715,6 +753,8 @@ private final class IOFiber[A](
              * race condition check: we may have been canceled
              * after setting the state but before we suspended
              */
+
+            logger.warn(shouldFinalize().toString)
             if (shouldFinalize()) {
               /*
                * if we can re-acquire the run-loop, we can finalize,
@@ -725,13 +765,20 @@ private final class IOFiber[A](
                * finalisers.
                */
               if (resume()) {
-                if (shouldFinalize())
+                if (shouldFinalize()) {
                   asyncCancel(null)
-                else
+                }
+                else {
                   suspend()
+                }
               }
             }
+            else {
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
+              ()
+            }
           } else {
+            logger.warn("outside compare and set")
             /*
              * state was no longer Initial, so the callback has already been invoked
              * and the state is Result.
@@ -753,8 +800,10 @@ private final class IOFiber[A](
              *   completed and the state is `Result`
              */
 
+            logger.warn("waiting")
             // Wait for the winner to publish the result.
             while (state.get() != ContStateResult) ()
+            logger.warn("finished waiting")
 
             val result = state.result
 
@@ -765,6 +814,7 @@ private final class IOFiber[A](
                 case Right(a) => succeeded(a, 0)
               }
 
+              logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
               runLoop(next, nextCancelation, nextAutoCede)
             } else if (outcome == null) {
               /*
@@ -778,6 +828,7 @@ private final class IOFiber[A](
         /* Cede */
         case 16 =>
           resumeTag = CedeR
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           rescheduleFiber(currentCtx)(this)
 
         case 17 =>
@@ -798,6 +849,7 @@ private final class IOFiber[A](
 
           scheduleFiber(ec)(fiber)
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(succeeded(fiber, 0), nextCancelation, nextAutoCede)
 
         case 18 =>
@@ -847,18 +899,23 @@ private final class IOFiber[A](
                 }
             }
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(next, nextCancelation, nextAutoCede)
 
         case 19 =>
+          logger.warn(s"Sleeping1")
           val cur = cur0.asInstanceOf[Sleep]
 
           val next = IO.async[Unit] { cb =>
             IO {
               val cancel = runtime.scheduler.sleep(cur.delay, () => cb(RightUnit))
+              logger.warn(s"Cancelling")
               Some(IO(cancel.run()))
             }
           }
+          logger.warn(s"Sleeping2")
 
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(next, nextCancelation, nextAutoCede)
 
         case 20 =>
@@ -866,6 +923,7 @@ private final class IOFiber[A](
 
           /* fast-path when it's an identity transformation */
           if (cur.ec eq currentCtx) {
+            logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
             runLoop(cur.ioa, nextCancelation, nextAutoCede)
           } else {
             val ec = cur.ec
@@ -875,6 +933,7 @@ private final class IOFiber[A](
 
             resumeTag = EvalOnR
             resumeIO = cur.ioa
+            logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
             execute(ec)(this)
           }
 
@@ -887,8 +946,10 @@ private final class IOFiber[A](
           if (cur.hint eq IOFiber.TypeBlocking) {
             resumeTag = BlockingR
             resumeIO = cur
+            logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
             runtime.blocking.execute(this)
           } else {
+            logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
             runLoop(interruptibleImpl(cur, runtime.blocking), nextCancelation, nextAutoCede)
           }
 
@@ -897,6 +958,7 @@ private final class IOFiber[A](
 
           val (nextLocalState, value) = cur.f(localState)
           localState = nextLocalState
+          logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId} for ${cur0.tag}")
           runLoop(succeeded(value, 0), nextCancelation, nextAutoCede)
       }
     }
@@ -939,7 +1001,7 @@ private final class IOFiber[A](
   }
 
   private[this] def asyncCancel(cb: Either[Throwable, Unit] => Unit): Unit = {
-    // System.out.println(s"running cancelation (finalizers.length = ${finalizers.unsafeIndex()})")
+    // logger.warn(s"running cancelation (finalizers.length = ${finalizers.unsafeIndex()})")
     finalizing = true
 
     if (!finalizers.isEmpty()) {
@@ -952,6 +1014,7 @@ private final class IOFiber[A](
       /* suppress all subsequent cancelation on this fiber */
       masks += 1
       // println(s"$name: Running finalizers on ${Thread.currentThread().getName}")
+      logger.warn(s"Exiting runLoop on IOFiber ${this.hashCode()} on Thread ${Thread.currentThread().getId}")
       runLoop(finalizers.pop(), cancelationCheckThreshold, autoYieldThreshold)
     } else {
       if (cb != null)
@@ -1324,13 +1387,13 @@ private final class IOFiber[A](
 
   private[this] def uncancelableSuccessK(result: Any, depth: Int): IO[Any] = {
     masks -= 1
-    // System.out.println(s"unmasking after uncancelable (isUnmasked = ${isUnmasked()})")
+    // logger.warn(s"unmasking after uncancelable (isUnmasked = ${isUnmasked()})")
     succeeded(result, depth + 1)
   }
 
   private[this] def uncancelableFailureK(t: Throwable, depth: Int): IO[Any] = {
     masks -= 1
-    // System.out.println(s"unmasking after uncancelable (isUnmasked = ${isUnmasked()})")
+    // logger.warn(s"unmasking after uncancelable (isUnmasked = ${isUnmasked()})")
     failed(t, depth + 1)
   }
 
